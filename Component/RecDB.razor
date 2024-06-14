@@ -1,0 +1,271 @@
+﻿@rendermode RenderMode.InteractiveServer
+@inject ContextBD BD
+@inject InfoContextDB InformationDB
+
+<head>
+<title>Проверка услуг</title>
+<style>
+   *{padding:0;
+       margin:0;
+    }
+    .container {
+            width: 100%;
+            height: 80%;
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            padding: 20px;
+            box-sizing: border-box;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+    }
+
+        .container2 {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            padding: 30px;
+        }
+    .form-section {
+            height: 230px;
+            width: 20%;
+            margin-right: 20px;
+        }
+    .result-section{
+            background-color: #f0f0f0;
+            padding: 15px;
+            width: 70%;
+            height: 230px;
+    }
+        .additional-info-section {
+            background-color: #f0f0f0;
+            padding: 15px;
+            height: 230px;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+
+    .title {
+        text-align: center; 
+    }
+    label {
+        display: block;
+        margin-bottom: 5px;
+    }
+    select {
+        margin-bottom: 10px;
+		width: 130px;
+    }
+
+        .conteinerInfo{
+            margin-top: 20px;
+            width: 50%;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+</style>
+</head>
+<h1 class="title">Проверка услуг</h1>
+
+<div class="container">
+    <div class="conteinerInfo">
+        <div class="form-section">
+            <label for="contract">Договор</label>
+<select @onchange="OnContractChange">
+    <option value="">Выберите договор</option>
+    @foreach (var contract in coll.Select(c => c.Contract).Distinct())
+    {
+        <option value="@contract">@contract</option>
+    }
+</select>
+
+            <label for="service">Услуга</label>
+    <select @onchange="OnServiceChange">
+        <option value="">Выберите услугу</option>
+        @foreach (var service in coll.Where(c => c.Contract == selectedContract).Select(c => c.Service).Distinct())
+        {
+            <option value="@service">@service</option>
+        }
+    </select>
+
+            <label for="city">Город</label>
+    <select @onchange="OnCityChange">
+        <option value="">Выберите город</option>
+        @foreach (var city in coll.Where(c => c.Contract == selectedContract && c.Service == selectedService).Select(c => c.City).Distinct())
+        {
+            <option value="@city">@city</option>
+        }
+    </select>
+
+            <label for="address">Адрес</label>
+            <select @bind="selectedAddress">
+                <option value="">Выберите адрес</option>
+                @foreach (var address in coll.Where(c => c.Contract == selectedContract && c.Service == selectedService && c.City == selectedCity).Select(c => c.Address).Distinct())
+                {
+                    <option value="@address">@address</option>
+                }
+            </select>
+            <div>
+                <button type="button" @onclick="UpdateClientDetails">Проверить</button>
+            </div>
+        </div>
+        <div class="result-section">
+            <strong>Результат проверки:</strong>
+            <pre>@ResultInfo</pre>
+        </div>
+        <div class="additional-info-section">
+            <strong>Дополнительная информация:</strong>
+            <pre>@CityInfo</pre>
+        </div>
+    </div>
+    
+    <div class="container2">
+        <form action="/submit_form" method="post">
+            <h2>Написать письмо в техническую поддержку</h2>
+            <label></label>
+            <label for="email">Ваша почта:</label><br>
+            <input type="email" id="email" name="email" required><br><br>
+            <label for="message">Текст сообщения:</label><br>
+            <textarea style="resize: none;" id="message" name="message" cols="45" rows="15" required>@SendMail</textarea><br><br>
+            <input type="submit" value="Отправить">
+        </form>
+    </div>
+    
+</div>
+
+@code  {
+    private List<Clients> coll = new List<Clients>(); // Инициализация данных из БД
+
+    private List<Inform> Information = new List<Inform>();
+
+    private string? selectedContract;
+    private string? selectedService;
+    private string? selectedCity;
+    private bool Enabled;
+    private string? selectedAddress;
+    private string? ResultInfo;
+    private string? ResultInfoSendMail;
+    private string? SendMail;
+    private string? CityInfo;
+
+
+    protected override void OnInitialized()
+    {
+        ShowBD showBD = new ShowBD(BD, InformationDB);
+
+        Information = showBD.ShowItemInfo();
+
+        coll = showBD.ShowItem(); 
+    }
+
+    private void OnContractChange(ChangeEventArgs e)
+    {
+        selectedContract = e.Value.ToString();
+        // Сбросить значения услуги, города и адреса при изменении договора
+        selectedService = null;
+        selectedCity = null;
+        selectedAddress = null;
+    }
+
+    private void OnServiceChange(ChangeEventArgs e)
+    {
+        selectedService = e.Value.ToString();
+
+        // Получить доступные города на основе выбранного договора и услуги
+        var availableCities = coll.Where(c => c.Contract == selectedContract && c.Service == selectedService)
+                                  .Select(c => c.City)
+                                  .Distinct()
+                                  .ToList();
+
+        if (availableCities.Count > 0)
+        {
+            selectedCity = availableCities[0]; // Установить первый доступный город
+            UpdateAddress();
+        }
+        else
+        {
+            selectedCity = null;
+            selectedAddress = null;
+        }
+    }
+
+    private void OnCityChange(ChangeEventArgs e)
+    {
+        selectedCity = e.Value.ToString();
+
+        var infoCity = Information.Find(c => c.City == selectedCity);
+        if(infoCity!=null)
+        {
+            CityInfo = infoCity.Information;
+        }
+        UpdateAddress();
+    }
+
+    private void UpdateAddress()
+    {
+        // Получить доступные адреса на основе выбранного договора, услуги и города
+        var availableAddresses = coll.Where(c => c.Contract == selectedContract && c.Service == selectedService 
+                                              && c.City == selectedCity)
+                                     .Select(c => c.Address)
+                                     .Distinct()
+                                     .ToList();
+
+        if (availableAddresses.Count > 0)
+        {
+            selectedAddress = availableAddresses[0]; // Установить первый доступный адрес
+        }
+        else
+        {
+            selectedAddress = null;
+        }
+    }
+
+    private void Proverka()
+    {
+
+
+        // ResultInfo = "По указанному адресу предоставление услуги приостановлено в связи с отсутствием оплаты.\n\n Пожалуйста, проверьте статус вашего платежа";
+    }
+
+    private void UpdateClientDetails()
+    {
+        // Найти клиента с выбранным договором, услугой и городом
+
+        var client = coll.Find(c => c.Contract == selectedContract && c.Service == selectedService && c.City == selectedCity && c.Address == selectedAddress);
+
+        if (client != null)
+        {
+            Enabled = client.ServicePaid;
+
+            if(Enabled)
+            {
+                var diagn = new Diagnostic(client.City,client.IPAddress,client.VLAN);
+
+                ResultInfo = diagn.result + "\nЕсли услуга не в работе, обратитесь\nв техническую поддержку c результатами проверки";
+
+                ResultInfoSendMail = diagn.result;
+
+
+            }else
+            {
+                ResultInfo = "По указанному адресу предоставление услуги приостановлено\nв связи с отсутствием оплаты.\n Пожалуйста, проверьте статус вашего платежа";
+
+                return;
+            }
+
+            SendMail = $"Договор: {selectedContract}\n" +
+                       $"Услуга:  {selectedService}\n" +
+                       $"Город: {selectedCity}\n" +
+                       $"Улица: {selectedAddress}\n" +
+                       $"Результат проверки: \n{ResultInfoSendMail}\n"+
+                       $"К.т. сотрудника на месте: ";
+        }
+    }
+}
+
+
